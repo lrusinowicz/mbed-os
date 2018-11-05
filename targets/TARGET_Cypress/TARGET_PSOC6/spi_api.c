@@ -170,16 +170,36 @@ static cy_en_sysclk_status_t spi_init_clock(spi_obj_t *obj, uint32_t frequency)
  */
 static void spi_init_pins(spi_obj_t *obj)
 {
-    if (cy_reserve_io_pin(obj->pin_sclk) ||
-            cy_reserve_io_pin(obj->pin_mosi) ||
-            cy_reserve_io_pin(obj->pin_miso) ||
-            cy_reserve_io_pin(obj->pin_ssel)) {
+    bool conflict = false;
+    conflict = cy_reserve_io_pin(obj->pin_sclk);
+    if (!conflict) {
+        pin_function(obj->pin_sclk, pinmap_function(obj->pin_sclk, PinMap_SPI_SCLK));
+    }
+    if (obj->pin_mosi != NC) {
+        if (!cy_reserve_io_pin(obj->pin_mosi)) {
+            pin_function(obj->pin_mosi, pinmap_function(obj->pin_mosi, PinMap_SPI_MOSI));
+        } else {
+            conflict = true;
+        }
+    }
+    if (obj->pin_miso != NC) {
+        if (!cy_reserve_io_pin(obj->pin_miso)) {
+            pin_function(obj->pin_miso, pinmap_function(obj->pin_miso, PinMap_SPI_MISO));
+        } else {
+            conflict = true;
+        }
+    }
+    if (obj->pin_ssel != NC) {
+        if (!cy_reserve_io_pin(obj->pin_ssel)) {
+            pin_function(obj->pin_ssel, pinmap_function(obj->pin_ssel, PinMap_SPI_SSEL));
+        } else {
+            conflict = true;
+        }
+    }
+    if (conflict) {
         error("SPI pin reservation conflict.");
     }
-    pin_function(obj->pin_sclk, pinmap_function(obj->pin_sclk, PinMap_SPI_SCLK));
-    pin_function(obj->pin_mosi, pinmap_function(obj->pin_mosi, PinMap_SPI_MOSI));
-    pin_function(obj->pin_miso, pinmap_function(obj->pin_miso, PinMap_SPI_MISO));
-    pin_function(obj->pin_ssel, pinmap_function(obj->pin_ssel, PinMap_SPI_SSEL));
+
     // Pin configuration in PinMap defaults to Master mode; revert for Slave.
     if (obj->ms_mode == CY_SCB_SPI_SLAVE) {
         pin_mode(obj->pin_sclk, PullNone);
@@ -370,6 +390,7 @@ int spi_master_block_write(spi_t *obj_in, const char *tx_buffer, int tx_length, 
     // Read any ramaining bytes from the fifo.
     while (rx_count < rx_length) {
         *rx_buffer++ = (char)Cy_SCB_SPI_Read(obj->base);
+        ++rx_count;
     }
     // Clean up if we have read less bytes than available.
     Cy_SCB_SPI_ClearRxFifo(obj->base);
