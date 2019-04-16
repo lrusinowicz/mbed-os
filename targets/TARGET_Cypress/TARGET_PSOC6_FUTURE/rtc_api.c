@@ -27,21 +27,34 @@
 /*
  * Since Mbed tests insist on supporting 1970 - 2106 years range
  * and Cypress h/w supports only 2000 - 2099 years range,
-* two backup registers are used to flag century correction.
+ * a backup register is used to flag century correction.
+ * This register is also used to detect backup/RTC power malfunction.
  */
-#define BR_LAST_YEAR_READ      14
-#define BR_CENTURY_CORRECTION  15
+#define BR_CENTURY_CORRECTION       14
+#define BR_CENTURY_CORR_MASK        0x00000180
+#define BR_CENTURY_CORR_POS         7
+#define BR_LAST_YEAR_READ_MASK      0x0000007f
+#define BR_CORR_MAGIC_MASK          0xfffffe00
+#define BR_CORR_MAGIC               0x61cafe00
+
 
 static int enabled = 0;
 
-static uint32_t rtc_read_convert_year(uint32_t short_year)
+static uint32_t rtc_read_convert_year(uint8_t short_year)
 {
+    uint32_t new_val;
     uint32_t century = BACKUP->BREG[BR_CENTURY_CORRECTION];
+    uint8_t  last_year_read = century & BR_LAST_YEAR_READ_MASK;
 
-    if (BACKUP->BREG[BR_LAST_YEAR_READ] > short_year) {
-        BACKUP->BREG[BR_CENTURY_CORRECTION] = ++century;
+
+    century = (century & BR_CENTURY_CORR_MASK) >> BR_CENTURY_CORR_POS;
+    if (last_year_read > short_year) {
+        ++century;
     }
-    BACKUP->BREG[BR_LAST_YEAR_READ] = short_year;
+    new_val = ((century << BR_CENTURY_CORR_POS) & BR_CENTURY_CORR_MASK) |
+              (short_year & BR_LAST_YEAR_READ_MASK) |
+              BR_CORR_MAGIC;
+    BACKUP->BREG[BR_CENTURY_CORRECTION] = new_val;
 
     return century * 100 + short_year;
 }
@@ -51,8 +64,10 @@ static uint32_t rtc_write_convert_year(uint32_t long_year)
     uint32_t short_year = long_year;
     uint32_t century = short_year / 100;
     short_year -= century * 100;
+    century = ((century << BR_CENTURY_CORR_POS) & BR_CENTURY_CORR_MASK) |
+              (short_year & BR_LAST_YEAR_READ_MASK) |
+              BR_CORR_MAGIC;
     BACKUP->BREG[BR_CENTURY_CORRECTION] = century;
-    BACKUP->BREG[BR_LAST_YEAR_READ] = short_year;
     return short_year;
 }
 
@@ -67,7 +82,7 @@ void rtc_init(void)
         .dayOfWeek = CY_RTC_SATURDAY,
         .date = 1,
         .month = 1,
-        .year = 0       // 2000 - 30 == 1970
+        .year = 0       // will fix later
     };
     cy_stc_rtc_config_t cy_time;
 
@@ -82,14 +97,24 @@ void rtc_init(void)
                 CY_RTC_IS_DOW_VALID(cy_time.dayOfWeek) &&
                 CY_RTC_IS_MONTH_VALID(cy_time.month) &&
                 CY_RTC_IS_YEAR_SHORT_VALID(cy_time.year) &&
-                (cy_time.hrFormat == CY_RTC_24_HOURS)) {
+                (cy_time.hrFormat == CY_RTC_24_HOURS) &&
+                ((BACKUP->BREG[BR_CENTURY_CORRECTION] & BR_CORR_MAGIC_MASK) == BR_CORR_MAGIC) &&
+                (rtc_read_convert_year(cy_time.year) >= 70)) {
             enabled = 1;
         } else {
+            cy_en_rtc_status_t  status;
+
             // reinitialize
-            init_val.year = rtc_write_convert_year(1970);
-            if (Cy_RTC_Init(&init_val) == CY_RTC_SUCCESS) {
+            init_val.year = rtc_write_convert_year(70);
+            while (CY_RTC_BUSY == Cy_RTC_GetSyncStatus()) {}
+            status = Cy_RTC_Init(&init_val);
+            if (status == CY_RTC_SUCCESS) {
                 enabled = 1;
+            } else {
+                error("Error 0x%x while initializing RTC.", status);
             }
+
+            while (CY_RTC_BUSY == Cy_RTC_GetSyncStatus()) {}
         }
     }
 }
