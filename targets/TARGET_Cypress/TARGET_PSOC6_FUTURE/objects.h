@@ -38,7 +38,7 @@ struct gpio_irq_s {
     uint32_t            port_id;
     uint32_t            pin;
     gpio_irq_event      mode;
-    gpio_irq_handler    handler;
+    uint32_t            handler;
     uint32_t            id_arg;
 #if defined (TARGET_MCU_PSOC6_M0)
     cy_en_intr_t        cm0p_irq_src;

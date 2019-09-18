@@ -35,7 +35,7 @@ typedef struct irq_port_info_s {
     uint32_t    pin_mask;
 } irq_port_info_t;
 
-static irq_port_info_t irq_port_usage[NUM_GPIO_PORTS] = {{0, 0},};
+static irq_port_info_t irq_port_usage[NUM_GPIO_PORTS] = {{(IRQn_Type)0, 0},};
 
 static void gpio_irq_dispatcher(uint32_t port_id)
 {
